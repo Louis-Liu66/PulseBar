@@ -204,6 +204,7 @@ PBMemoryReading PBReadMemory(void) {
 }
 
 static bool PBCFNumber(CFDictionaryRef dictionary, CFStringRef key, double *result) {
+    if (!dictionary || !result) return false;
     CFTypeRef value = CFDictionaryGetValue(dictionary, key);
     return value && CFGetTypeID(value) == CFNumberGetTypeID() &&
            CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, result) &&
@@ -220,6 +221,19 @@ static double PBDictionaryNumber(CFDictionaryRef dictionary, CFStringRef key) {
     double number = NAN;
     (void)PBCFNumber(dictionary, key, &number);
     return number;
+}
+
+static CFDictionaryRef PBDictionary(CFDictionaryRef dictionary, CFStringRef key) {
+    if (!dictionary) return NULL;
+    CFTypeRef value = CFDictionaryGetValue(dictionary, key);
+    return value && CFGetTypeID(value) == CFDictionaryGetTypeID()
+        ? (CFDictionaryRef)value : NULL;
+}
+
+static double PBFirstDictionaryNumber(CFDictionaryRef primary, CFStringRef primaryKey,
+                                      CFDictionaryRef fallback, CFStringRef fallbackKey) {
+    double number = PBDictionaryNumber(primary, primaryKey);
+    return isfinite(number) ? number : PBDictionaryNumber(fallback, fallbackKey);
 }
 
 // IOKit's current is a signed mA integer. ioreg may print its unsigned bit
@@ -239,7 +253,9 @@ static bool PBCFCurrentMilliAmps(CFTypeRef value, double *result) {
 
 static double PBDictionaryCurrent(CFDictionaryRef dictionary, CFStringRef key) {
     double current = NAN;
-    (void)PBCFCurrentMilliAmps(CFDictionaryGetValue(dictionary, key), &current);
+    if (dictionary) {
+        (void)PBCFCurrentMilliAmps(CFDictionaryGetValue(dictionary, key), &current);
+    }
     return current;
 }
 
@@ -304,12 +320,37 @@ static void PBUpdateBatteryRegistry(PBBatteryReading *reading, CFDictionaryRef p
     // Physical disconnection overrides a delayed cached charging flag.
     if (!reading->onACPower) reading->charging = false;
 
-    const double currentMAh = PBDictionaryNumber(properties, CFSTR("AppleRawCurrentCapacity"));
-    const double maximumMAh = PBDictionaryNumber(properties, CFSTR("AppleRawMaxCapacity"));
-    const double voltageMV = PBDictionaryNumber(properties, CFSTR("Voltage"));
-    const double currentMA = PBSelectBatteryCurrent(
-        PBDictionaryCurrent(properties, CFSTR("InstantAmperage")),
-        PBDictionaryCurrent(properties, CFSTR("Amperage")), voltageMV,
+    // macOS 27 moved the usable mAh capacity values from top-level
+    // AppleRaw* properties into the BatteryData dictionary. Prefer the old
+    // fields when present, then accept either nested AppleRaw* names (used by
+    // the pack service) or the parent service's Remaining/FullCharge values.
+    // Keep all validation in PBUpdateBatteryElectrical so an unexpected
+    // schema still fails closed instead of producing an invented ETA.
+    const CFDictionaryRef batteryData = PBDictionary(properties, CFSTR("BatteryData"));
+    double currentMAh = PBFirstDictionaryNumber(properties, CFSTR("AppleRawCurrentCapacity"),
+                                                 batteryData, CFSTR("AppleRawCurrentCapacity"));
+    if (!isfinite(currentMAh)) {
+        currentMAh = PBDictionaryNumber(batteryData, CFSTR("RemainingCapacity"));
+    }
+    double maximumMAh = PBFirstDictionaryNumber(properties, CFSTR("AppleRawMaxCapacity"),
+                                                 batteryData, CFSTR("AppleRawMaxCapacity"));
+    if (!isfinite(maximumMAh)) {
+        maximumMAh = PBDictionaryNumber(batteryData, CFSTR("FullChargeCapacity"));
+    }
+    double voltageMV = PBFirstDictionaryNumber(properties, CFSTR("Voltage"),
+                                                batteryData, CFSTR("Voltage"));
+    if (!isfinite(voltageMV)) {
+        voltageMV = PBDictionaryNumber(batteryData, CFSTR("AppleRawBatteryVoltage"));
+    }
+    double instantMA = PBDictionaryCurrent(properties, CFSTR("InstantAmperage"));
+    if (!isfinite(instantMA)) {
+        instantMA = PBDictionaryCurrent(batteryData, CFSTR("InstantAmperage"));
+    }
+    double averageMA = PBDictionaryCurrent(properties, CFSTR("Amperage"));
+    if (!isfinite(averageMA)) {
+        averageMA = PBDictionaryCurrent(batteryData, CFSTR("Amperage"));
+    }
+    const double currentMA = PBSelectBatteryCurrent(instantMA, averageMA, voltageMV,
         reading->onACPower, reading->charging);
     PBUpdateBatteryElectrical(reading, currentMAh, maximumMAh, voltageMV, currentMA);
 

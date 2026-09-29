@@ -138,7 +138,7 @@ import SwiftUI
     @MainActor static func main() {
         if CommandLine.arguments.contains("--diagnose") {
             let sampler = SystemSampler()
-            print("PulseBar 2.9.1 | \(ProcessInfo.processInfo.operatingSystemVersionString) | TouchBar API: \(PBTouchBarSupported())")
+            print("PulseBar 2.9.2 | \(ProcessInfo.processInfo.operatingSystemVersionString) | TouchBar API: \(PBTouchBarSupported())")
             for i in 0..<6 {
                 let s = sampler.sample()
                 let cpu = s.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "baseline"

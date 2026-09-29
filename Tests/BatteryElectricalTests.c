@@ -28,6 +28,23 @@ static CFMutableDictionaryRef batteryProperties(bool connected, bool charging,
     setNumber(properties, CFSTR("Amperage"), averageMA);
     return properties;
 }
+static CFMutableDictionaryRef macOS27BatteryProperties(bool connected, bool charging,
+                                                       int64_t instantMA, int64_t averageMA) {
+    CFMutableDictionaryRef properties = CFDictionaryCreateMutable(NULL, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(properties, CFSTR("ExternalConnected"), connected ? kCFBooleanTrue : kCFBooleanFalse);
+    CFDictionarySetValue(properties, CFSTR("IsCharging"), charging ? kCFBooleanTrue : kCFBooleanFalse);
+    setNumber(properties, CFSTR("Voltage"), 11404);
+    setNumber(properties, CFSTR("InstantAmperage"), instantMA);
+    setNumber(properties, CFSTR("Amperage"), averageMA);
+    CFMutableDictionaryRef data = CFDictionaryCreateMutable(NULL, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    setNumber(data, CFSTR("RemainingCapacity"), 2953);
+    setNumber(data, CFSTR("FullChargeCapacity"), 3969);
+    CFDictionarySetValue(properties, CFSTR("BatteryData"), data);
+    CFRelease(data);
+    return properties;
+}
 static void powerBytes(int32_t milliwatts, uint8_t bytes[4]) {
     const uint32_t bits = (uint32_t)milliwatts;
     for (unsigned i = 0; i < 4; ++i) bytes[i] = (uint8_t)(bits >> (8 * i));
@@ -204,6 +221,57 @@ int main(void) {
     reading = (PBBatteryReading){0};
     PBUpdateBatteryRegistry(&reading, properties);
     CHECK(!reading.powerValid && reading.energyValid);
+    CFRelease(properties);
+
+    // macOS 27 publishes capacity in a nested BatteryData dictionary on the
+    // AppleSmartBattery parent service, while current and voltage remain at
+    // the top level. This is the live schema that previously left ETA stuck.
+    properties = macOS27BatteryProperties(false, false, -1137, -1137);
+    reading = (PBBatteryReading){.valid = true, .percent = 78};
+    PBUpdateBatteryRegistry(&reading, properties);
+    CHECK(reading.energyValid && reading.powerValid && !reading.onACPower && !reading.charging);
+    CHECK(near(reading.remainingEnergyWh, 33.676012));
+    CHECK(near(reading.fullChargeEnergyWh, 45.262476));
+    CHECK(near(reading.netPowerWatts, -12.966348));
+    CHECK(near(reading.precisePercent, 74.40161249685059));
+    CFRelease(properties);
+
+    // Some macOS 27 services expose the same nested values under AppleRaw*
+    // names. They are accepted without weakening the existing range checks.
+    properties = macOS27BatteryProperties(false, false, -1000, -1000);
+    CFMutableDictionaryRef nested = (CFMutableDictionaryRef)PBDictionary(properties, CFSTR("BatteryData"));
+    CFDictionaryRemoveValue(nested, CFSTR("RemainingCapacity"));
+    CFDictionaryRemoveValue(nested, CFSTR("FullChargeCapacity"));
+    setNumber(nested, CFSTR("AppleRawCurrentCapacity"), 2000);
+    setNumber(nested, CFSTR("AppleRawMaxCapacity"), 4000);
+    reading = (PBBatteryReading){.valid = true, .percent = 50};
+    PBUpdateBatteryRegistry(&reading, properties);
+    CHECK(reading.energyValid && near(reading.remainingEnergyWh, 22.808));
+    CHECK(near(reading.fullChargeEnergyWh, 45.616));
+    CFRelease(properties);
+
+    // If a later driver moves the electrical fields with the capacities, the
+    // same nested snapshot remains usable without falling back to stale data.
+    properties = macOS27BatteryProperties(true, true, 1000, 1000);
+    nested = (CFMutableDictionaryRef)PBDictionary(properties, CFSTR("BatteryData"));
+    setNumber(nested, CFSTR("AppleRawBatteryVoltage"), 11404);
+    setNumber(nested, CFSTR("InstantAmperage"), 1000);
+    setNumber(nested, CFSTR("Amperage"), 1000);
+    CFDictionaryRemoveValue(properties, CFSTR("Voltage"));
+    CFDictionaryRemoveValue(properties, CFSTR("InstantAmperage"));
+    CFDictionaryRemoveValue(properties, CFSTR("Amperage"));
+    reading = (PBBatteryReading){.valid = true, .percent = 74};
+    PBUpdateBatteryRegistry(&reading, properties);
+    CHECK(reading.energyValid && reading.powerValid && reading.onACPower && reading.charging);
+    CHECK(near(reading.netPowerWatts, 11.404));
+    CFRelease(properties);
+
+    properties = CFDictionaryCreateMutable(NULL, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(properties, CFSTR("BatteryData"), CFSTR("malformed"));
+    reading = (PBBatteryReading){.valid = true, .percent = 50};
+    PBUpdateBatteryRegistry(&reading, properties);
+    CHECK(!reading.energyValid && !reading.powerValid);
     CFRelease(properties);
 
     properties = batteryProperties(true, true, -500, 1500);

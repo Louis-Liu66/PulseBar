@@ -27,7 +27,8 @@ typedef struct {
     bool onACPower;
     bool fullyCharged;
     bool chargeLimited;
-    // Raw pack capacity (mAh) × present voltage (V). Optional; these are not
+    // Pack capacity (mAh) × present voltage (V), read from the legacy raw
+    // fields or macOS 27's nested BatteryData fields. Optional; these are not
     // adapter power or macOS's precomputed time-remaining estimates.
     double remainingEnergyWh;
     double fullChargeEnergyWh;

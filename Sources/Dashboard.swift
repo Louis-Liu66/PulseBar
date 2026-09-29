@@ -210,7 +210,7 @@ struct Dashboard: View {
                 Spacer()
                 Text("关闭窗口后仍在菜单栏运行").font(.system(size: 10)).foregroundColor(muted)
                 Text("·").foregroundColor(muted)
-                Text("v2.9.1").font(.system(size: 10, design: .monospaced)).foregroundColor(muted)
+                Text("v2.9.2").font(.system(size: 10, design: .monospaced)).foregroundColor(muted)
             }
             if !model.loginMessage.isEmpty { Text(model.loginMessage).font(.system(size: 10)).foregroundColor(.orange) }
         }

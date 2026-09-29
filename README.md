@@ -1,4 +1,4 @@
-# PulseBar 2.9.1
+# PulseBar 2.9.2
 
 面向 13 英寸 M2 MacBook Pro 的原生 Touch Bar 监控应用。总览及二级页面保持 620 × 30 pt，保留系统控制区；Codex 位于最左侧，宽度 184 pt；温度与 CPU 各 60 pt；天气 124 pt；电池 176 pt；模块间距 4 pt。
 
@@ -80,7 +80,7 @@ Codex 按 QuotaStrip 1.1.1 的显示方式保留图标、两行用量条和颜�
 
 ## 构建与检查
 
-需要 Apple Command Line Tools，无第三方运行时依赖。目标 arm64、macOS 13 或更新版本；实机为 Mac14,7 / Apple M2 / 8 GB / macOS 26.4。
+需要 Apple Command Line Tools，无第三方运行时依赖。目标 arm64、macOS 13 或更新版本；电池容量读取兼容 macOS 27 的嵌套 `BatteryData` 字段。
 
 ```sh
 ./build.sh                       # 在源码目录上一级生成 PulseBar.app
